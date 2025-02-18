@@ -74,13 +74,11 @@ BUILD_ALLOW_ERRORS = os.getenv("SAM2_BUILD_ALLOW_ERRORS", "1") == "1"
 # Catch and skip errors during extension building and print a warning message
 # (note that this message only shows up under verbose build mode
 # "pip install -v -e ." or "python setup.py build_ext -v")
-CUDA_ERROR_MSG = (
-    "{}\n\n"
-    "Failed to build the SAM 2 CUDA extension due to the error above. "
-    "You can still use SAM 2 and it's OK to ignore the error above, although some "
-    "post-processing functionality may be limited (which doesn't affect the results in most cases; "
-    "(see https://github.com/facebookresearch/sam2/blob/main/INSTALL.md).\n"
-)
+CUDA_ERROR_MSG = ("{}\n\n"
+                  "Failed to build the SAM 2 CUDA extension due to the error above. "
+                  "You can still use SAM 2 and it's OK to ignore the error above, although some "
+                  "post-processing functionality may be limited (which doesn't affect the results in most cases; "
+                  "(see https://github.com/facebookresearch/sam2/blob/main/INSTALL.md).\n")
 
 
 def get_extensions():
@@ -139,11 +137,9 @@ try:
                 return "_C.so"
 
     cmdclass = {
-        "build_ext": (
-            BuildExtensionIgnoreErrors.with_options(no_python_abi_suffix=True)
-            if BUILD_ALLOW_ERRORS
-            else BuildExtension.with_options(no_python_abi_suffix=True)
-        )
+        "build_ext": (BuildExtensionIgnoreErrors.with_options(
+            no_python_abi_suffix=True) if BUILD_ALLOW_ERRORS else BuildExtension.with_options(no_python_abi_suffix=True)
+                     )
     }
 except Exception as e:
     cmdclass = {}
@@ -151,7 +147,6 @@ except Exception as e:
         print(CUDA_ERROR_MSG.format(e))
     else:
         raise e
-
 
 # Setup configuration
 setup(
@@ -171,4 +166,7 @@ setup(
     python_requires=">=3.10.0",
     ext_modules=get_extensions(),
     cmdclass=cmdclass,
+    entry_points={
+        "console_scripts": ["sam2 = run:main"],
+    },
 )
