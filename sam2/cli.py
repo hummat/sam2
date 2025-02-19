@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 import matplotlib.pyplot as plt
+from matplotlib.widgets import RectangleSelector
 import numpy as np
 import numpy.typing as npt
 import torch
@@ -60,14 +61,14 @@ def show_points(coords: npt.NDArray[np.float32],
                marker='.',
                s=marker_size,
                edgecolor='white',
-               linewidth=1.25)
+               linewidth=1)
     ax.scatter(neg_points[:, 0],
                neg_points[:, 1],
                color='red',
                marker='.',
                s=marker_size,
                edgecolor='white',
-               linewidth=1.25)
+               linewidth=1)
 
 
 def show_box(box: npt.NDArray[np.float32], ax: plt.Axes) -> None:
@@ -130,10 +131,34 @@ def show_masks(image: npt.NDArray[np.uint8],
             else:
                 Image.fromarray(mask.astype(np.uint8) * 255).save(output_dir / f"{mask_name}.png")
         else:
-
-            # Lists to store click points and their labels
+            # Lists to store click points, labels and box coordinates
             click_points = []
             click_labels = []
+            box_selection = []
+
+            def on_box_select(eclick, erelease):
+                x1, y1 = eclick.xdata, eclick.ydata
+                x2, y2 = erelease.xdata, erelease.ydata
+                box_selection.clear()
+                box_selection.extend([min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)])
+                logger.debug(f'Selected box coordinates: {box_selection}')
+
+                # Clear previous box if any
+                plt.gca().clear()
+                plt.imshow(image)
+                if mask is not None:
+                    show_mask(mask, plt.gca(), borders=borders, border_thickness=border_thickness)
+                if click_points:
+                    show_points(np.array(click_points, np.float32), np.array(click_labels, np.int32), plt.gca())
+                show_box(np.array(box_selection, np.float32), plt.gca())
+                fig.canvas.draw_idle()
+
+            rect_selector = RectangleSelector(plt.gca(),
+                                              on_box_select,
+                                              useblit=True,
+                                              button=[1],
+                                              spancoords='data',
+                                              interactive=True)
 
             def on_click(event):
                 if event.inaxes:
@@ -161,6 +186,9 @@ def show_masks(image: npt.NDArray[np.uint8],
 
             plt.show()  # Wait until the plot window is closed
             plt.close()
+
+            if box_selection:
+                return np.array(box_selection, np.float32), None
 
             if click_points:
                 return np.array(click_points, np.float32), np.array(click_labels, np.int32)
@@ -256,13 +284,21 @@ def run(args: CLIArgs):
             logger.info(f"Using initial point {points[0]} with label {labels[0]}")
 
         masks = None
+        box = None
         all_points = None
         all_labels = None
         while True:
-            if points is not None:
+            if points is not None or box is not None:
                 with torch.inference_mode(), torch.autocast(device_type=device, dtype=torch.bfloat16):
-                    logger.debug(f"Running inference with points: {points} and labels: {labels}")
-                    masks, scores, _ = predictor.predict(point_coords=points, point_labels=labels)
+                    if points is not None:
+                        logger.debug(f"Running inference with points: {points} and labels: {labels}")
+                    elif box is not None:
+                        logger.debug(f"Running inference with box: {box}")
+                    masks, scores, _ = predictor.predict(
+                        point_coords=points,
+                        point_labels=labels,
+                        box=box,
+                    )
 
                     sorted_ind = np.argsort(scores)[::-1]
                     masks = masks[sorted_ind]
@@ -287,12 +323,15 @@ def run(args: CLIArgs):
                 break
 
             points, labels = data
-            if all_points is None:
-                all_points = points
-                all_labels = labels
+            if labels is None:
+                box, points = points, None
             else:
-                all_points = np.concatenate([all_points, points], axis=0)
-                all_labels = np.concatenate([all_labels, labels], axis=0)
+                if all_points is None:
+                    all_points = points
+                    all_labels = labels
+                else:
+                    all_points = np.concatenate([all_points, points], axis=0)
+                    all_labels = np.concatenate([all_labels, labels], axis=0)
 
     elif args.data.is_dir():
         frame_names = [p for p in args.data.iterdir() if p.suffix.lower() in {'.jpg', '.jpeg', '.png'}]
@@ -338,18 +377,23 @@ def run(args: CLIArgs):
                 logger.info(f"Adding initial point: {points[0]} with label {labels[0]}")
 
         masks = None
+        box = None
         all_points = None
         all_labels = None
         while True:
-            if points is not None:
+            if points is not None or box is not None:
                 with torch.inference_mode(), torch.autocast(device_type=device, dtype=torch.bfloat16):
-                    logger.debug(f"Adding new points: {points} with labels {labels}")
+                    if points is not None:
+                        logger.debug(f"Adding new points: {points} with labels {labels}")
+                    elif box is not None:
+                        logger.debug(f"Adding new box: {box}")
                     _, _, masks = predictor.add_new_points_or_box(
                         inference_state=inference_state,
                         frame_idx=args.init_frame,
                         obj_id=0,
                         points=points,
                         labels=labels,
+                        box=box,
                     )
 
                 if args.point:
@@ -367,12 +411,15 @@ def run(args: CLIArgs):
                 break
 
             points, labels = data
-            if all_points is None:
-                all_points = points
-                all_labels = labels
+            if labels is None:
+                box, points = points, None
             else:
-                all_points = np.concatenate([all_points, points], axis=0)
-                all_labels = np.concatenate([all_labels, labels], axis=0)
+                if all_points is None:
+                    all_points = points
+                    all_labels = labels
+                else:
+                    all_points = np.concatenate([all_points, points], axis=0)
+                    all_labels = np.concatenate([all_labels, labels], axis=0)
 
         logger.info("Starting video propagation")
         video_segments = {}
