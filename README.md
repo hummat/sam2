@@ -1,6 +1,6 @@
 # SAM 2: Segment Anything in Images and Videos
 
-[Update]
+## Update
 
 Now with a CLI! See `sam2 --help` for more details:
 
