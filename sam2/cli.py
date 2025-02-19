@@ -3,7 +3,7 @@ import io
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Literal
 
 import matplotlib.pyplot as plt
 from matplotlib.widgets import RectangleSelector
@@ -201,7 +201,8 @@ class CLIArgs:
     data: Path  # Path to the image(s)
     point: Optional[Tuple[float, float]] = None  # Optional point coordinates (x, y) for mask prediction
     init_frame: int = 0  # Frame index to start propagation
-    checkpoint: str = "sam2.1_hiera_large.pt"  # Name of the SAM2 checkpoint
+    checkpoint: Literal["sam2.1_hiera_large.pt", "sam2.1_hiera_base_plus.pt", "sam2.1_hiera_small.pt",
+                        "sam2.1_hiera_tiny.pt"] = "sam2.1_hiera_large.pt"  # Name of the SAM-2 checkpoint
     huggingface: bool = False  # Load model from Hugging Face model hub
     stride: int = 1  # Stride for visualizing/saving frames in video mode
     mask_threshold: float = 0  # Threshold for binarizing mask predictions
@@ -213,7 +214,7 @@ class CLIArgs:
     progress: bool = False  # Show progress bar
     verbose: bool = False  # Enable verbose logging
     quiet: bool = False  # Suppress all logging except errors
-    device: str = "auto"  # Device to run inference on
+    device: Literal["auto", "cpu", "gpu"] = "auto"  # Device to run inference on
 
 
 def run(args: CLIArgs):
