@@ -208,7 +208,7 @@ def run(args: CLIArgs):
 
     ckpt_parts = args.checkpoint.split('_')
     config_file = f"configs/sam2.1/{'_'.join(ckpt_parts[:-1] + [ckpt_parts[-1][0]])}.yaml"
-    ckpt_path = f"checkpoints/{args.checkpoint}"
+    ckpt_path = str(Path(__file__).parent.parent / "checkpoints" / args.checkpoint)
     logger.debug(f"Using config file: {config_file}, Checkpoint: {ckpt_path}")
 
     device = args.device if args.device != "auto" else "cuda" if torch.cuda.is_available() else "cpu"

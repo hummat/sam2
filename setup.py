@@ -5,10 +5,10 @@
 # LICENSE file in the root directory of this source tree.
 import os
 
-from setuptools import find_packages, setup
+from setuptools import find_namespace_packages, setup
 
 # Package metadata
-NAME = "SAM-2"
+NAME = "sam2"
 VERSION = "1.0"
 DESCRIPTION = "SAM 2: Segment Anything in Images and Videos"
 URL = "https://github.com/facebookresearch/sam2"
@@ -22,7 +22,7 @@ with open("README.md", "r", encoding="utf-8") as f:
 
 # Required dependencies
 REQUIRED_PACKAGES = [
-    "torch>=2.5.1",
+    "torch>=2.5.1,<2.6",
     "torchvision>=0.20.1",
     "numpy>=1.24.4",
     "tqdm>=4.66.1",
@@ -92,10 +92,8 @@ def get_extensions():
         compile_args = {
             "cxx": [],
             "nvcc": [
-                "-DCUDA_HAS_FP16=1",
-                "-D__CUDA_NO_HALF_OPERATORS__",
-                "-D__CUDA_NO_HALF_CONVERSIONS__",
-                "-D__CUDA_NO_HALF2_OPERATORS__",
+                "-DCUDA_HAS_FP16=1", "-D__CUDA_NO_HALF_OPERATORS__", "-D__CUDA_NO_HALF_CONVERSIONS__",
+                "-D__CUDA_NO_HALF2_OPERATORS__", f"-I{os.environ['CUDA_HOME']}/include -isystem /usr/include"
             ],
         }
         ext_modules = [CUDAExtension("sam2._C", srcs, extra_compile_args=compile_args)]
@@ -159,7 +157,7 @@ setup(
     author=AUTHOR,
     author_email=AUTHOR_EMAIL,
     license=LICENSE,
-    packages=find_packages(exclude="notebooks"),
+    packages=find_namespace_packages(exclude="notebooks"),
     include_package_data=True,
     install_requires=REQUIRED_PACKAGES,
     extras_require=EXTRA_PACKAGES,
@@ -167,6 +165,6 @@ setup(
     ext_modules=get_extensions(),
     cmdclass=cmdclass,
     entry_points={
-        "console_scripts": ["sam2 = run:main"],
+        "console_scripts": ["sam2 = sam2.cli:main"],
     },
 )
