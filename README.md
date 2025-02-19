@@ -1,5 +1,54 @@
 # SAM 2: Segment Anything in Images and Videos
 
+[Update]
+
+Now with a CLI! See `sam2 --help` for more details:
+
+```bash
+usage: sam2 [-h] [OPTIONS]
+
+Arguments for the SAM-2 CLI
+
+╭─ options ──────────────────────────────────────────────────────────────────╮
+│ -h, --help                                                                 │
+│     show this help message and exit                                        │
+│ --data PATH                                                                │
+│     Path to the image(s) (required)                                        │
+│ --point {None}|{FLOAT FLOAT}                                               │
+│     Optional point coordinates (x, y) for mask prediction (default: None)  │
+│ --init-frame INT                                                           │
+│     Frame index to start propagation (default: 0)                          │
+│ --checkpoint                                                               │
+│ {sam2.1_hiera_large.pt,sam2.1_hiera_base_plus.pt,sam2.1_hiera_small.pt,sa… │
+│     Name of the SAM-2 checkpoint (default: sam2.1_hiera_large.pt)          │
+│ --huggingface, --no-huggingface                                            │
+│     Load model from Hugging Face model hub (default: False)                │
+│ --stride INT                                                               │
+│     Stride for visualizing/saving frames in video mode (default: 1)        │
+│ --mask-threshold FLOAT                                                     │
+│     Threshold for binarizing mask predictions (default: 0)                 │
+│ --max-hole-area FLOAT                                                      │
+│     Maximum hole area in mask predictions (default: 8)                     │
+│ --max-sprinkle-area FLOAT                                                  │
+│     Maximum sprinkle area in mask predictions (default: 1)                 │
+│ --output-dir {None}|PATH                                                   │
+│     Directory to save visualization results (default: None)                │
+│ --transparent-mask, --no-transparent-mask                                  │
+│     Save masks as PNG with transparency instead of black and white         │
+│     (default: True)                                                        │
+│ --async-load, --no-async-load                                              │
+│     Asynchronously load video frames (default: True)                       │
+│ --progress, --no-progress                                                  │
+│     Show progress bar (default: False)                                     │
+│ --verbose, --no-verbose                                                    │
+│     Enable verbose logging (default: False)                                │
+│ --quiet, --no-quiet                                                        │
+│     Suppress all logging except errors (default: False)                    │
+│ --device {auto,cpu,gpu}                                                    │
+│     Device to run inference on (default: auto)                             │
+╰────────────────────────────────────────────────────────────────────────────╯
+```
+
 **[AI at Meta, FAIR](https://ai.meta.com/research/)**
 
 [Nikhila Ravi](https://nikhilaravi.com/), [Valentin Gabeur](https://gabeur.github.io/), [Yuan-Ting Hu](https://scholar.google.com/citations?user=E8DVVYQAAAAJ&hl=en), [Ronghang Hu](https://ronghanghu.com/), [Chaitanya Ryali](https://scholar.google.com/citations?user=4LWx24UAAAAJ&hl=en), [Tengyu Ma](https://scholar.google.com/citations?user=VeTSl0wAAAAJ&hl=en), [Haitham Khedr](https://hkhedr.com/), [Roman Rädle](https://scholar.google.de/citations?user=Tpt57v0AAAAJ&hl=en), [Chloe Rolland](https://scholar.google.com/citations?hl=fr&user=n-SnMhoAAAAJ), [Laura Gustafson](https://scholar.google.com/citations?user=c8IpF9gAAAAJ&hl=en), [Eric Mintun](https://ericmintun.github.io/), [Junting Pan](https://junting.github.io/), [Kalyan Vasudev Alwala](https://scholar.google.co.in/citations?user=m34oaWEAAAAJ&hl=en), [Nicolas Carion](https://www.nicolascarion.com/), [Chao-Yuan Wu](https://chaoyuan.org/), [Ross Girshick](https://www.rossgirshick.info/), [Piotr Dollár](https://pdollar.github.io/), [Christoph Feichtenhofer](https://feichtenhofer.github.io/)

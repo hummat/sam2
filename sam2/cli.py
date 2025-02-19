@@ -78,7 +78,7 @@ def show_box(box: npt.NDArray[np.float32], ax: plt.Axes) -> None:
 
 
 def show_masks(image: npt.NDArray[np.uint8],
-               masks: List[npt.NDArray[np.bool_] | None],
+               masks: List[Optional[npt.NDArray[np.bool_]]],
                scores: Optional[List[float]] = None,
                point_coords: Optional[npt.NDArray[np.float32]] = None,
                box_coords: Optional[npt.NDArray[np.float32]] = None,

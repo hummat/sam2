@@ -32,6 +32,13 @@ REQUIRED_PACKAGES = [
 ]
 
 EXTRA_PACKAGES = {
+    "cli": [
+        "matplotlib>=3.9.1",
+        "opencv-python>=4.7.0",
+        "tyro>=0.9.8",
+        "loguru>=0.7.2",
+        "huggingface-hub>=0.23.3",
+    ],
     "notebooks": [
         "matplotlib>=3.9.1",
         "jupyter>=1.0.0",
