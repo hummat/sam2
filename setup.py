@@ -170,7 +170,7 @@ setup(
     include_package_data=True,
     install_requires=REQUIRED_PACKAGES,
     extras_require=EXTRA_PACKAGES,
-    python_requires=">=3.10.0",
+    python_requires=">=3.9",
     ext_modules=get_extensions(),
     cmdclass=cmdclass,
     entry_points={

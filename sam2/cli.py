@@ -199,7 +199,10 @@ def show_masks(image: npt.NDArray[np.uint8],
 class CLIArgs:
     """Arguments for the SAM-2 CLI"""
     data: Path  # Path to the image(s)
-    point: Optional[Tuple[float, float]] = None  # Optional point coordinates (x, y) for mask prediction
+    points: Optional[List[Tuple[float,
+                                float]]] = None  # Optional list of point coordinates [(x, y), ...] for mask prediction
+    labels: Optional[List[int]] = None  # Optional labels for points (1 for positive, 0 for negative)
+    box: Optional[Tuple[float, float, float, float]] = None  # Optional bounding box coordinates (x1, y1, x2, y2)
     init_frame: int = 0  # Frame index to start propagation
     checkpoint: Literal["sam2.1_hiera_large.pt", "sam2.1_hiera_base_plus.pt", "sam2.1_hiera_small.pt",
                         "sam2.1_hiera_tiny.pt"] = "sam2.1_hiera_large.pt"  # Name of the SAM-2 checkpoint
@@ -275,24 +278,39 @@ def run(args: CLIArgs):
 
         points = None
         labels = None
-        if args.point:
-            points = np.array([args.point], dtype=np.float32)
-            if args.point[0] < 1:
-                points[:, 0] = image.shape[1] * points[0, 0]
-            if args.point[1] < 1:
-                points[:, 1] = image.shape[0] * points[0, 1]
-            labels = np.array([1], dtype=np.int32)
-            logger.info(f"Using initial point {points[0]} with label {labels[0]}")
+        if args.points:
+            points = np.array(args.points, dtype=np.float32)
+            for i in range(len(points)):
+                if points[i, 0] < 1:
+                    points[i, 0] = image.shape[1] * points[i, 0]
+                if points[i, 1] < 1:
+                    points[i, 1] = image.shape[0] * points[i, 1]
+            labels = np.array(args.labels if args.labels else [1] * len(args.points), dtype=np.int32)
+            if len(points) != len(labels):
+                raise ValueError(f"Number of points ({len(points)}) and labels ({len(labels)}) do not match")
+            logger.info(f"Using {len(points)} point(s) with label(s) {labels}")
+
+        box = None
+        if args.box:
+            box = np.array(args.box, dtype=np.float32)
+            if box[0] < 1:
+                box[0] = image.shape[1] * box[0]
+            if box[1] < 1:
+                box[1] = image.shape[0] * box[1]
+            if box[2] < 1:
+                box[2] = image.shape[1] * box[2]
+            if box[3] < 1:
+                box[3] = image.shape[0] * box[3]
+            logger.info(f"Using box: {box}")
 
         masks = None
-        box = None
         all_points = None
         all_labels = None
         while True:
             if points is not None or box is not None:
                 with torch.inference_mode(), torch.autocast(device_type=device, dtype=torch.bfloat16):
                     if points is not None:
-                        logger.debug(f"Running inference with points: {points} and labels: {labels}")
+                        logger.debug(f"Running inference with point(s): {points} and label(s): {labels}")
                     elif box is not None:
                         logger.debug(f"Running inference with box: {box}")
                     masks, scores, _ = predictor.predict(
@@ -366,26 +384,42 @@ def run(args: CLIArgs):
 
         points = None
         labels = None
-        if args.point:
-            points = np.array([args.point], dtype=np.float32)
-            if args.point[0] < 1:
-                points[:, 0] = image.shape[1] * points[0, 0]
-            if args.point[1] < 1:
-                points[:, 1] = image.shape[0] * points[0, 1]
-            labels = np.array([1], dtype=np.int32)
+        if args.points:
+            points = np.array(args.points, dtype=np.float32)
+            for i in range(len(points)):
+                if points[i, 0] < 1:
+                    points[i, 0] = image.shape[1] * points[i, 0]
+                if points[i, 1] < 1:
+                    points[i, 1] = image.shape[0] * points[i, 1]
+            labels = np.array(args.labels if args.labels else [1] * len(args.points), dtype=np.int32)
+            if len(points) != len(labels):
+                raise ValueError(f"Number of points ({len(points)}) and labels ({len(labels)}) do not match")
 
             if not (args.progress and args.async_load):
-                logger.info(f"Adding initial point: {points[0]} with label {labels[0]}")
+                logger.info(f"Using {len(points)} point(s) with label(s) {labels}")
+
+        box = None
+        if args.box:
+            box = np.array(args.box, dtype=np.float32)
+            if box[0] < 1:
+                box[0] = image.shape[1] * box[0]
+            if box[1] < 1:
+                box[1] = image.shape[0] * box[1]
+            if box[2] < 1:
+                box[2] = image.shape[1] * box[2]
+            if box[3] < 1:
+                box[3] = image.shape[0] * box[3]
+            if not (args.progress and args.async_load):
+                logger.info(f"Using box: {box}")
 
         masks = None
-        box = None
         all_points = None
         all_labels = None
         while True:
             if points is not None or box is not None:
                 with torch.inference_mode(), torch.autocast(device_type=device, dtype=torch.bfloat16):
                     if points is not None:
-                        logger.debug(f"Adding new points: {points} with labels {labels}")
+                        logger.debug(f"Adding new point(s): {points} with label(s) {labels}")
                     elif box is not None:
                         logger.debug(f"Adding new box: {box}")
                     _, _, masks = predictor.add_new_points_or_box(
@@ -397,8 +431,8 @@ def run(args: CLIArgs):
                         box=box,
                     )
 
-                if args.point:
-                    break
+            if args.points or args.box:
+                break
 
             data = show_masks(
                 image=image,
