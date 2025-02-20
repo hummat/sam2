@@ -467,7 +467,7 @@ def run(args: CLIArgs):
                     }
 
         stride = args.stride if args.stride > 1 or args.output_dir else len(frame_names) // 10
-        logger.info(f"Rendering results (stride={stride})" if stride > 1 else "Rendering reults")
+        logger.info(f"Rendering results (stride={stride})" if stride > 1 else "Rendering results")
         for frame_idx in trange(0, len(frame_names), stride, desc="render frames", disable=not args.progress):
             show_masks(
                 image=np.asarray(Image.open(frame_names[frame_idx])),
