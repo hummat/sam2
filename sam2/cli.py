@@ -1,17 +1,17 @@
 import contextlib
 import io
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Tuple, Literal
+from typing import List, Literal, Optional, Tuple
 
 import matplotlib.pyplot as plt
-from matplotlib.widgets import RectangleSelector
 import numpy as np
 import numpy.typing as npt
 import torch
 import tyro
 from loguru import logger
+from matplotlib.widgets import RectangleSelector
 from PIL import Image
 from tqdm import trange
 
@@ -85,13 +85,13 @@ def show_masks(image: npt.NDArray[np.uint8],
                input_labels: Optional[npt.NDArray[np.int32]] = None,
                borders: bool = True,
                border_thickness: int = 2,
-               figure_size: Tuple[int, int] = (10, 10),
+               figsize: Tuple[int, int] = (10, 10),
                hide_prompt: bool = False,
                output_dir: Optional[Path] = None,
                base_filename: Optional[str] = None,
                transparent_mask: bool = True) -> Optional[Tuple[npt.NDArray[np.float32], npt.NDArray[np.int32]]]:
     for i, mask in enumerate(masks):
-        fig = plt.figure(figsize=figure_size)
+        fig = plt.figure(figsize=figsize)
         plt.imshow(image)
         if mask is not None:
             show_mask(mask, plt.gca(), borders=borders, border_thickness=border_thickness)
@@ -196,31 +196,57 @@ def show_masks(image: npt.NDArray[np.uint8],
 
 
 @dataclass
-class CLIArgs:
-    """Arguments for the SAM-2 CLI"""
-    data: Path  # Path to the image(s)
-    points: Optional[List[Tuple[float,
-                                float]]] = None  # Optional list of point coordinates [(x, y), ...] for mask prediction
-    labels: Optional[List[int]] = None  # Optional labels for points (1 for positive, 0 for negative)
-    box: Optional[Tuple[float, float, float, float]] = None  # Optional bounding box coordinates (x1, y1, x2, y2)
-    init_frame: int = 0  # Frame index to start propagation
+class SAM2Args:
+    """Configuration for SAM-2 model and inference"""
     checkpoint: Literal["sam2.1_hiera_large.pt", "sam2.1_hiera_base_plus.pt", "sam2.1_hiera_small.pt",
-                        "sam2.1_hiera_tiny.pt"] = "sam2.1_hiera_large.pt"  # Name of the SAM-2 checkpoint
-    huggingface: bool = False  # Load model from Hugging Face model hub
-    stride: int = 1  # Stride for visualizing/saving frames in video mode
-    mask_threshold: float = 0  # Threshold for binarizing mask predictions
-    max_hole_area: float = 8  # Maximum hole area in mask predictions
-    max_sprinkle_area: float = 1  # Maximum sprinkle area in mask predictions
-    output_dir: Optional[Path] = None  # Directory to save visualization results
-    transparent_mask: bool = True  # Save masks as PNG with transparency instead of black and white
-    async_load: bool = True  # Asynchronously load video frames
-    progress: bool = False  # Show progress bar
-    verbose: bool = False  # Enable verbose logging
-    quiet: bool = False  # Suppress all logging except errors
-    device: Literal["auto", "cpu", "gpu"] = "auto"  # Device to run inference on
+                        "sam2.1_hiera_tiny.pt"] = "sam2.1_hiera_large.pt"
+    """Name of the SAM-2 checkpoint"""
+    huggingface: bool = False
+    """Load model from Hugging Face model hub"""
+    mask_threshold: float = 0
+    """Threshold for binarizing mask predictions"""
+    max_hole_area: float = 8
+    """Maximum hole area in mask predictions"""
+    max_sprinkle_area: float = 1
+    """Maximum sprinkle area in mask predictions"""
+    device: Literal["auto", "cpu", "gpu"] = "auto"
+    """Device to run inference on"""
 
 
-def run(args: CLIArgs):
+@dataclass
+class Args:
+    """Single object image and video frames segmentation using SAM-2"""
+    data: Path
+    """Path to the image(s) or video frames directory"""
+    model: SAM2Args = field(default_factory=SAM2Args)
+    """SAM-2 model configuration"""
+    points: Optional[List[Tuple[float, float]]] = None
+    """Optional list of point coordinates [(x, y), ...] for mask prediction"""
+    labels: Optional[List[int]] = None
+    """Optional labels for points (1 for positive, 0 for negative)"""
+    box: Optional[Tuple[float, float, float, float]] = None
+    """Optional bounding box coordinates (x1, y1, x2, y2)"""
+    init_frame: int = 0
+    """Frame index to start propagation"""
+    stride: int = 1
+    """Stride for visualizing/saving frames in video mode"""
+    output_dir: Optional[Path] = None
+    """Directory to save segmentation masks"""
+    transparent_mask: bool = True
+    """Save masks as PNG with transparency instead of black and white"""
+    async_load: bool = True
+    """Asynchronously load video frames"""
+    progress: bool = False
+    """Show progress bar"""
+    show: bool = True
+    """Show segmentations masks as overlay on images"""
+    verbose: bool = False
+    """Enable verbose logging"""
+    quiet: bool = False
+    """Suppress all logging except errors"""
+
+
+def run(args: Args) -> npt.NDArray[np.bool_]:
     logger.remove()
     if not args.quiet:
         if args.verbose:
@@ -238,74 +264,72 @@ def run(args: CLIArgs):
         torch.backends.cudnn.allow_tf32 = True
         logger.debug("Enabled TF32 for CUDA computation")
 
-    ckpt_parts = args.checkpoint.split('_')
+    ckpt_parts = args.model.checkpoint.split('_')
     config_file = f"configs/sam2.1/{'_'.join(ckpt_parts[:-1] + [ckpt_parts[-1][0]])}.yaml"
-    ckpt_path = str(Path(__file__).parent.parent / "checkpoints" / args.checkpoint)
+    ckpt_path = str(Path(__file__).parent.parent / "checkpoints" / args.model.checkpoint)
     logger.debug(f"Using config file: {config_file}, Checkpoint: {ckpt_path}")
 
-    device = args.device if args.device != "auto" else "cuda" if torch.cuda.is_available() else "cpu"
+    device = args.model.device if args.model.device != "auto" else "cuda" if torch.cuda.is_available() else "cpu"
     logger.debug(f"Using device: {device}")
 
+    points = None
+    labels = None
+    box = None
+    masks = None
+
+    if args.points:
+        points = np.array(args.points, dtype=np.float32)
+        for i in range(len(points)):
+            if points[i, 0] < 1:
+                points[i, 0] = image.shape[1] * points[i, 0]
+            if points[i, 1] < 1:
+                points[i, 1] = image.shape[0] * points[i, 1]
+        labels = np.array(args.labels if args.labels else [1] * len(args.points), dtype=np.int32)
+        if len(points) != len(labels):
+            raise ValueError(f"Number of points ({len(points)}) and labels ({len(labels)}) do not match")
+        logger.info(f"Using {len(points)} point(s) with label(s) {labels}")
+
+    if args.box:
+        box = np.array(args.box, dtype=np.float32)
+        if box[0] < 1:
+            box[0] = image.shape[1] * box[0]
+        if box[1] < 1:
+            box[1] = image.shape[0] * box[1]
+        if box[2] < 1:
+            box[2] = image.shape[1] * box[2]
+        if box[3] < 1:
+            box[3] = image.shape[0] * box[3]
+        logger.info(f"Using box: {box}")
+
     if args.data.is_file():
-        logger.info(f"Processing single image: {args.data}")
-        image = Image.open(args.data)
-        image = np.array(image.convert("RGB"))
+        logger.info(f"Processing single image")
+        image = np.array(Image.open(args.data).convert("RGB"))
         base_filename = args.data.stem
 
-        figure_size = (8, 4.5) if image.shape[1] > image.shape[0] else (4.5, 8)
-        logger.debug(f"Using figure size: {figure_size}")
+        figsize = (8, 4.5) if image.shape[1] > image.shape[0] else (4.5, 8)
+        logger.debug(f"Using figure size: {figsize}")
 
-        if args.huggingface:
-            hf_name = str(f"facebook/{Path(args.checkpoint).stem}").replace("_", "-")
+        if args.model.huggingface:
+            hf_name = str(f"facebook/{Path(args.model.checkpoint).stem}").replace("_", "-")
             logger.info(f"Loading checkpoint {hf_name} from Hugging Face model hub")
             with (contextlib.nullcontext() if args.quiet else contextlib.redirect_stderr(io.StringIO())):
                 predictor = SAM2ImagePredictor.from_pretrained(
                     model_id=hf_name,
-                    mask_threshold=args.mask_threshold,
-                    max_hole_area=args.max_hole_area,
-                    max_sprinkle_area=args.max_sprinkle_area,
+                    mask_threshold=args.model.mask_threshold,
+                    max_hole_area=args.model.max_hole_area,
+                    max_sprinkle_area=args.model.max_sprinkle_area,
                 )
         else:
             logger.info(f"Loading checkpoint from {ckpt_path}")
             predictor = SAM2ImagePredictor(
                 sam_model=build_sam2(config_file, ckpt_path, device=device),
-                mask_threshold=args.mask_threshold,
-                max_hole_area=args.max_hole_area,
-                max_sprinkle_area=args.max_sprinkle_area,
+                mask_threshold=args.model.mask_threshold,
+                max_hole_area=args.model.max_hole_area,
+                max_sprinkle_area=args.model.max_sprinkle_area,
             )
         predictor.set_image(image)
         logger.debug(f"Image shape: {image.shape}")
 
-        points = None
-        labels = None
-        if args.points:
-            points = np.array(args.points, dtype=np.float32)
-            for i in range(len(points)):
-                if points[i, 0] < 1:
-                    points[i, 0] = image.shape[1] * points[i, 0]
-                if points[i, 1] < 1:
-                    points[i, 1] = image.shape[0] * points[i, 1]
-            labels = np.array(args.labels if args.labels else [1] * len(args.points), dtype=np.int32)
-            if len(points) != len(labels):
-                raise ValueError(f"Number of points ({len(points)}) and labels ({len(labels)}) do not match")
-            logger.info(f"Using {len(points)} point(s) with label(s) {labels}")
-
-        box = None
-        if args.box:
-            box = np.array(args.box, dtype=np.float32)
-            if box[0] < 1:
-                box[0] = image.shape[1] * box[0]
-            if box[1] < 1:
-                box[1] = image.shape[0] * box[1]
-            if box[2] < 1:
-                box[2] = image.shape[1] * box[2]
-            if box[3] < 1:
-                box[3] = image.shape[0] * box[3]
-            logger.info(f"Using box: {box}")
-
-        masks = None
-        all_points = None
-        all_labels = None
         while True:
             if points is not None or box is not None:
                 with torch.inference_mode(), torch.autocast(device_type=device, dtype=torch.bfloat16):
@@ -320,49 +344,51 @@ def run(args: CLIArgs):
                     )
 
                     sorted_ind = np.argsort(scores)[::-1]
-                    masks = masks[sorted_ind]
+                    masks = masks[sorted_ind] > 0
                     scores = scores[sorted_ind]
                     logger.debug(f"Generated {len(scores)} masks with scores: {scores}")
-                    best = np.argmax(scores)
-                    logger.debug(f"Best mask score: {scores[best]:.3f}")
+                    logger.debug(f"Best mask score: {scores[0]:.3f}")
+
+                    if not args.output_dir and not args.show:
+                        return masks[0]  # Return the best mask
 
             data = show_masks(
                 image=image,
-                masks=[None] if masks is None else [masks[best]],
-                scores=None if masks is None else [scores[best]],
-                point_coords=points if all_points is None else all_points,
-                input_labels=labels if all_labels is None else all_labels,
-                figure_size=figure_size,
+                masks=[None] if masks is None else [masks[0]],
+                scores=None if masks is None else [scores[0]],
+                point_coords=points,
+                input_labels=labels,
+                figsize=figsize,
                 output_dir=args.output_dir,
                 base_filename=base_filename,
                 transparent_mask=args.transparent_mask,
             )
 
             if data is None:
-                break
+                return masks[0]  # Return the best mask
 
-            points, labels = data
-            if labels is None:
-                box, points = points, None
+            p, l = data
+            if l is None:
+                box, points = p, None
             else:
-                if all_points is None:
-                    all_points = points
-                    all_labels = labels
+                if points is None:
+                    points = p
+                    labels = l
                 else:
-                    all_points = np.concatenate([all_points, points], axis=0)
-                    all_labels = np.concatenate([all_labels, labels], axis=0)
+                    points = np.concatenate([points, p], axis=0)
+                    labels = np.concatenate([labels, l], axis=0)
 
     elif args.data.is_dir():
         frame_names = [p for p in args.data.iterdir() if p.suffix.lower() in {'.jpg', '.jpeg', '.png'}]
         frame_names.sort(key=lambda p: int(''.join(filter(str.isdigit, p.stem))))
         logger.info(f"Processing video directory with {len(frame_names)} frames")
 
-        image = np.asarray(Image.open(frame_names[0]))
-        figure_size = (8, 4.5) if image.shape[1] > image.shape[0] else (4.5, 8)
-        logger.debug(f"Using figure size: {figure_size}")
+        image = np.asarray(Image.open(frame_names[args.init_frame]).convert("RGB"))
+        figsize = (8, 4.5) if image.shape[1] > image.shape[0] else (4.5, 8)
+        logger.debug(f"Using figure size: {figsize}")
 
-        if args.huggingface:
-            hf_name = str(f"facebook/{Path(args.checkpoint).stem}").replace("_", "-")
+        if args.model.huggingface:
+            hf_name = str(f"facebook/{Path(args.model.checkpoint).stem}").replace("_", "-")
             logger.info(f"Loading checkpoint {hf_name} from Hugging Face model hub")
             with (contextlib.nullcontext() if args.quiet else contextlib.redirect_stderr(io.StringIO())):
                 predictor = SAM2VideoPredictor.from_pretrained(
@@ -379,40 +405,10 @@ def run(args: CLIArgs):
             )
 
         logger.info("Loading frames")
-        with (contextlib.nullcontext() if args.progress else contextlib.redirect_stderr(io.StringIO())):
+        with (contextlib.nullcontext()
+              if getattr(args, 'progress', False) else contextlib.redirect_stderr(io.StringIO())):
             inference_state = predictor.init_state(video_path=str(args.data), async_loading_frames=args.async_load)
 
-        points = None
-        labels = None
-        if args.points:
-            points = np.array(args.points, dtype=np.float32)
-            for i in range(len(points)):
-                if points[i, 0] < 1:
-                    points[i, 0] = image.shape[1] * points[i, 0]
-                if points[i, 1] < 1:
-                    points[i, 1] = image.shape[0] * points[i, 1]
-            labels = np.array(args.labels if args.labels else [1] * len(args.points), dtype=np.int32)
-            if len(points) != len(labels):
-                raise ValueError(f"Number of points ({len(points)}) and labels ({len(labels)}) do not match")
-
-            if not (args.progress and args.async_load):
-                logger.info(f"Using {len(points)} point(s) with label(s) {labels}")
-
-        box = None
-        if args.box:
-            box = np.array(args.box, dtype=np.float32)
-            if box[0] < 1:
-                box[0] = image.shape[1] * box[0]
-            if box[1] < 1:
-                box[1] = image.shape[0] * box[1]
-            if box[2] < 1:
-                box[2] = image.shape[1] * box[2]
-            if box[3] < 1:
-                box[3] = image.shape[0] * box[3]
-            if not (args.progress and args.async_load):
-                logger.info(f"Using box: {box}")
-
-        masks = None
         all_points = None
         all_labels = None
         while True:
@@ -439,7 +435,7 @@ def run(args: CLIArgs):
                 masks=[None] if masks is None else [(m > 0).squeeze().cpu().numpy() for m in masks],
                 point_coords=points if all_points is None else all_points,
                 input_labels=labels if all_labels is None else all_labels,
-                figure_size=figure_size,
+                figsize=figsize,
             )
 
             if data is None:
@@ -461,26 +457,30 @@ def run(args: CLIArgs):
         with torch.inference_mode(), torch.autocast(device_type=device, dtype=torch.bfloat16):
             with (contextlib.nullcontext() if args.progress else contextlib.redirect_stderr(io.StringIO())):
                 for frame_idx, object_ids, masks in predictor.propagate_in_video(inference_state):
-                    logger.debug(f"Processing frame {frame_idx} with {len(object_ids)} objects")
+                    logger.debug(f"Processing frame {frame_idx} with {len(object_ids)} object(s)")
                     video_segments[frame_idx] = {
                         object_id: (masks[i] > 0).squeeze().cpu().numpy() for i, object_id in enumerate(object_ids)
                     }
 
-        stride = args.stride if args.stride > 1 or args.output_dir else len(frame_names) // 10
-        logger.info(f"Rendering results (stride={stride})" if stride > 1 else "Rendering results")
-        for frame_idx in trange(0, len(frame_names), stride, desc="render frames", disable=not args.progress):
-            show_masks(
-                image=np.asarray(Image.open(frame_names[frame_idx])),
-                masks=[video_segments[frame_idx][out_obj_id] for out_obj_id in video_segments[frame_idx]],
-                figure_size=figure_size,
-                output_dir=args.output_dir,
-                base_filename=frame_names[frame_idx].stem,
-                transparent_mask=args.transparent_mask,
-            )
+        if args.output_dir or args.show:
+            stride = args.stride if args.stride > 1 or args.output_dir else len(frame_names) // 10
+            logger.info(f"Rendering results (stride={stride})" if stride > 1 else "Rendering results")
+            for frame_idx in trange(0, len(frame_names), stride, desc="render frames", disable=not args.progress):
+                show_masks(
+                    image=np.asarray(Image.open(frame_names[frame_idx])),
+                    masks=video_segments[frame_idx].values(),
+                    figsize=figsize,
+                    output_dir=args.output_dir,
+                    base_filename=frame_names[frame_idx].stem,
+                    transparent_mask=args.transparent_mask,
+                )
+
+        # Return masks for the first object in each frame
+        return np.array([list(vs.values())[0] for vs in video_segments.values()])
 
 
 def main():
-    run(tyro.cli(CLIArgs))
+    run(tyro.cli(Args))
 
 
 if __name__ == "__main__":
