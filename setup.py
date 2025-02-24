@@ -9,7 +9,7 @@ from setuptools import find_namespace_packages, setup
 
 # Package metadata
 NAME = "sam2"
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 DESCRIPTION = "SAM 2: Segment Anything in Images and Videos"
 URL = "https://github.com/facebookresearch/sam2"
 AUTHOR = "Meta AI"
