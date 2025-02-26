@@ -2,7 +2,7 @@
 
 ## 🚀 Update
 
-:tada: **Now with a CLI!** :tada: => See `cissy run -au -opt cli=True -p sam2 sam2 --help` for more details:
+:tada: **Now with a CLI!** :tada: => See `sam2 --help` for more details:
 
 ```bash
 usage: sam2 [-h] [OPTIONS]
