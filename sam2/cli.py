@@ -198,9 +198,11 @@ def show_masks(image: npt.NDArray[np.uint8],
 @dataclass
 class SAM2Args:
     """Configuration for SAM-2 model and inference"""
-    checkpoint: Literal["sam2.1_hiera_large.pt", "sam2.1_hiera_base_plus.pt", "sam2.1_hiera_small.pt",
-                        "sam2.1_hiera_tiny.pt"] = "sam2.1_hiera_large.pt"
-    """Name of the SAM-2 checkpoint"""
+    name: Literal["sam2.1_hiera_large", "sam2.1_hiera_base_plus", "sam2.1_hiera_small",
+                  "sam2.1_hiera_tiny"] = "sam2.1_hiera_large"
+    """Name of the SAM-2 model variant"""
+    checkpoint: Optional[Path] = None
+    """Path to a custom checkpoint file. Defaults to sam2/checkpoints/name.pt"""
     huggingface: bool = False
     """Load model from Hugging Face model hub"""
     mask_threshold: float = 0
@@ -264,9 +266,17 @@ def run(args: Args) -> npt.NDArray[np.bool_]:
         torch.backends.cudnn.allow_tf32 = True
         logger.debug("Enabled TF32 for CUDA computation")
 
-    ckpt_parts = args.model.checkpoint.split('_')
+    ckpt_parts = args.model.name.split('_')
     config_file = f"configs/sam2.1/{'_'.join(ckpt_parts[:-1] + [ckpt_parts[-1][0]])}.yaml"
-    ckpt_path = str(Path(__file__).parent.parent / "checkpoints" / args.model.checkpoint)
+
+    if args.model.checkpoint:
+        if Path(args.model.checkpoint).resolve().is_file():
+            ckpt_path = str(args.model.checkpoint.resolve())
+        else:
+            ckpt_path = str(Path(__file__).parent.parent / "checkpoints" / args.model.checkpoint)
+    else:
+        ckpt_path = str(Path(__file__).parent.parent / "checkpoints" / f"{args.model.name}.pt")
+
     logger.debug(f"Using config file: {config_file}, Checkpoint: {ckpt_path}")
 
     device = args.model.device if args.model.device != "auto" else "cuda" if torch.cuda.is_available() else "cpu"
@@ -276,6 +286,14 @@ def run(args: Args) -> npt.NDArray[np.bool_]:
     labels = None
     box = None
     masks = None
+
+    if args.data.is_file():
+        image = np.array(Image.open(args.data).convert("RGB"))
+    elif args.data.is_dir():
+        file = next(p for p in args.data.iterdir() if p.suffix.lower() in {'.jpg', '.jpeg', '.png'})
+        image = np.array(Image.open(file).convert("RGB"))
+    else:
+        raise ValueError(f"Invalid data path: {args.data}")
 
     if args.points:
         points = np.array(args.points, dtype=np.float32)
@@ -310,7 +328,7 @@ def run(args: Args) -> npt.NDArray[np.bool_]:
         logger.debug(f"Using figure size: {figsize}")
 
         if args.model.huggingface:
-            hf_name = str(f"facebook/{Path(args.model.checkpoint).stem}").replace("_", "-")
+            hf_name = f"facebook/{args.model.name.replace('_', '-')}"
             logger.info(f"Loading checkpoint {hf_name} from Hugging Face model hub")
             with (contextlib.nullcontext() if args.quiet else contextlib.redirect_stderr(io.StringIO())):
                 predictor = SAM2ImagePredictor.from_pretrained(
@@ -330,6 +348,7 @@ def run(args: Args) -> npt.NDArray[np.bool_]:
         predictor.set_image(image)
         logger.debug(f"Image shape: {image.shape}")
 
+        data = None
         while True:
             if points is not None or box is not None:
                 with torch.inference_mode(), torch.autocast(device_type=device, dtype=torch.bfloat16):
@@ -349,7 +368,7 @@ def run(args: Args) -> npt.NDArray[np.bool_]:
                     logger.debug(f"Generated {len(scores)} masks with scores: {scores}")
                     logger.debug(f"Best mask score: {scores[0]:.3f}")
 
-                    if not args.output_dir and not args.show:
+                    if not args.output_dir and not args.show and data is None:
                         return masks[0]  # Return the best mask
 
             data = show_masks(

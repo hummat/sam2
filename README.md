@@ -1,52 +1,40 @@
 # SAM 2: Segment Anything in Images and Videos
 
-## Update
+## 🚀 Update
 
-Now with a CLI! See `sam2 --help` for more details:
+:tada: **Now with a CLI!** :tada: => See `cissy run -au -opt cli=True -p sam2 sam2 --help` for more details:
 
 ```bash
 usage: sam2 [-h] [OPTIONS]
 
-Arguments for the SAM-2 CLI
+Single object image and video frames segmentation using SAM-2
 
-╭─ options ──────────────────────────────────────────────────────────────────╮
-│ -h, --help                                                                 │
-│     show this help message and exit                                        │
-│ --data PATH                                                                │
-│     Path to the image(s) (required)                                        │
-│ --point {None}|{FLOAT FLOAT}                                               │
-│     Optional point coordinates (x, y) for mask prediction (default: None)  │
-│ --init-frame INT                                                           │
-│     Frame index to start propagation (default: 0)                          │
-│ --checkpoint                                                               │
-│ {sam2.1_hiera_large.pt,sam2.1_hiera_base_plus.pt,sam2.1_hiera_small.pt,sa… │
-│     Name of the SAM-2 checkpoint (default: sam2.1_hiera_large.pt)          │
-│ --huggingface, --no-huggingface                                            │
-│     Load model from Hugging Face model hub (default: False)                │
-│ --stride INT                                                               │
-│     Stride for visualizing/saving frames in video mode (default: 1)        │
-│ --mask-threshold FLOAT                                                     │
-│     Threshold for binarizing mask predictions (default: 0)                 │
-│ --max-hole-area FLOAT                                                      │
-│     Maximum hole area in mask predictions (default: 8)                     │
-│ --max-sprinkle-area FLOAT                                                  │
-│     Maximum sprinkle area in mask predictions (default: 1)                 │
-│ --output-dir {None}|PATH                                                   │
-│     Directory to save visualization results (default: None)                │
-│ --transparent-mask, --no-transparent-mask                                  │
-│     Save masks as PNG with transparency instead of black and white         │
-│     (default: True)                                                        │
-│ --async-load, --no-async-load                                              │
-│     Asynchronously load video frames (default: True)                       │
-│ --progress, --no-progress                                                  │
-│     Show progress bar (default: False)                                     │
-│ --verbose, --no-verbose                                                    │
-│     Enable verbose logging (default: False)                                │
-│ --quiet, --no-quiet                                                        │
-│     Suppress all logging except errors (default: False)                    │
-│ --device {auto,cpu,gpu}                                                    │
-│     Device to run inference on (default: auto)                             │
-╰────────────────────────────────────────────────────────────────────────────╯
+╭─ options ────────────────────────────────────────────────────────────────────────────────────────────╮ ╭─ model options ─────────────────────────────────────────────────────────────────────────────────────╮
+│ -h, --help              show this help message and exit                                              │ │ SAM-2 model configuration                                                                           │
+│ --data PATH             Path to the image(s) or video frames directory (required)                    │ │ ─────────────────────────────────────────────────────────────────────────────────────────────────── │
+│ --points {None}|{[FLOAT FLOAT [FLOAT FLOAT ...]]}                                                    │ │ --model.name {sam2.1_hiera_large,sam2.1_hiera_base_plus,sam2.1_hiera_small,sam2.1_hiera_tiny}       │
+│                         Optional list of point coordinates [(x, y), ...] for mask prediction         │ │                         Name of the SAM-2 model variant (default: sam2.1_hiera_large)               │
+│                         (default: None)                                                              │ │ --model.checkpoint {None}|PATH                                                                      │
+│ --labels {None}|{[INT [INT ...]]}                                                                    │ │                         Path to a custom checkpoint file. Defaults to sam2/checkpoints/name.pt      │
+│                         Optional labels for points (1 for positive, 0 for negative) (default: None)  │ │                         (default: None)                                                             │
+│ --box {None}|{FLOAT FLOAT FLOAT FLOAT}                                                               │ │ --model.huggingface, --model.no-huggingface                                                         │
+│                         Optional bounding box coordinates (x1, y1, x2, y2) (default: None)           │ │                         Load model from Hugging Face model hub (default: False)                     │
+│ --init-frame INT        Frame index to start propagation (default: 0)                                │ │ --model.mask-threshold FLOAT                                                                        │
+│ --stride INT            Stride for visualizing/saving frames in video mode (default: 1)              │ │                         Threshold for binarizing mask predictions (default: 0)                      │
+│ --output-dir {None}|PATH                                                                             │ │ --model.max-hole-area FLOAT                                                                         │
+│                         Directory to save segmentation masks (default: None)                         │ │                         Maximum hole area in mask predictions (default: 8)                          │
+│ --transparent-mask, --no-transparent-mask                                                            │ │ --model.max-sprinkle-area FLOAT                                                                     │
+│                         Save masks as PNG with transparency instead of black and white (default:     │ │                         Maximum sprinkle area in mask predictions (default: 1)                      │
+│                         True)                                                                        │ │ --model.device {auto,cpu,gpu}                                                                       │
+│ --async-load, --no-async-load                                                                        │ │                         Device to run inference on (default: auto)                                  │
+│                         Asynchronously load video frames (default: True)                             │ ╰─────────────────────────────────────────────────────────────────────────────────────────────────────╯
+│ --progress, --no-progress                                                                            │
+│                         Show progress bar (default: False)                                           │
+│ --show, --no-show       Show segmentations masks as overlay on images (default: True)                │
+│ --verbose, --no-verbose                                                                              │
+│                         Enable verbose logging (default: False)                                      │
+│ --quiet, --no-quiet     Suppress all logging except errors (default: False)                          │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
 **[AI at Meta, FAIR](https://ai.meta.com/research/)**
@@ -72,7 +60,7 @@ Arguments for the SAM-2 CLI
 **09/30/2024 -- SAM 2.1 Developer Suite (new checkpoints, training code, web demo) is released**
 
 - A new suite of improved model checkpoints (denoted as **SAM 2.1**) are released. See [Model Description](#model-description) for details.
-  * To use the new SAM 2.1 checkpoints, you need the latest model code from this repo. If you have installed an earlier version of this repo, please first uninstall the previous version via `pip uninstall SAM-2`, pull the latest code from this repo (with `git pull`), and then reinstall the repo following [Installation](#installation) below.
+  - To use the new SAM 2.1 checkpoints, you need the latest model code from this repo. If you have installed an earlier version of this repo, please first uninstall the previous version via `pip uninstall SAM-2`, pull the latest code from this repo (with `git pull`), and then reinstall the repo following [Installation](#installation) below.
 - The training (and fine-tuning) code has been released. See [`training/README.md`](training/README.md) on how to get started.
 - The frontend + backend code for the SAM 2 web demo has been released. See [`demo/README.md`](demo/README.md) for details.
 
@@ -85,6 +73,7 @@ git clone https://github.com/facebookresearch/sam2.git && cd sam2
 
 pip install -e .
 ```
+
 If you are installing on Windows, it's strongly recommended to use [Windows Subsystem for Linux (WSL)](https://learn.microsoft.com/en-us/windows/wsl/install) with Ubuntu.
 
 To use the SAM 2 predictor and run the example notebooks, `jupyter` and `matplotlib` are required and can be installed by:
@@ -94,6 +83,7 @@ pip install -e ".[notebooks]"
 ```
 
 Note:
+
 1. It's recommended to create a new Python environment via [Anaconda](https://www.anaconda.com/) for this installation and install PyTorch 2.5.1 (or higher) via `pip` following https://pytorch.org/. If you have a PyTorch version lower than 2.5.1 in your current environment, the installation command above will try to upgrade it to the latest PyTorch version using `pip`.
 2. The step above requires compiling a custom CUDA kernel with the `nvcc` compiler. If it isn't already available on your machine, please install the [CUDA toolkits](https://developer.nvidia.com/cuda-toolkit-archive) with a version that matches your PyTorch CUDA version.
 3. If you see a message like `Failed to build the SAM 2 CUDA extension` during installation, you can ignore it and still use SAM 2 (some post-processing functionality may be limited, but it doesn't affect the results in most cases).
@@ -211,25 +201,26 @@ with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
 ### SAM 2.1 checkpoints
 
 The table below shows the improved SAM 2.1 checkpoints released on September 29, 2024.
-|      **Model**       | **Size (M)** |    **Speed (FPS)**     | **SA-V test (J&F)** | **MOSE val (J&F)** | **LVOS v2 (J&F)** |
+| **Model** | **Size (M)** | **Speed (FPS)** | **SA-V test (J&F)** | **MOSE val (J&F)** | **LVOS v2 (J&F)** |
 | :------------------: | :----------: | :--------------------: | :-----------------: | :----------------: | :---------------: |
-|   sam2.1_hiera_tiny <br /> ([config](sam2/configs/sam2.1/sam2.1_hiera_t.yaml), [checkpoint](https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_tiny.pt))    |     38.9     |          91.2          |        76.5         |        71.8        |       77.3        |
-|   sam2.1_hiera_small <br /> ([config](sam2/configs/sam2.1/sam2.1_hiera_s.yaml), [checkpoint](https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_small.pt))   |      46      |          84.8          |        76.6         |        73.5        |       78.3        |
-| sam2.1_hiera_base_plus <br /> ([config](sam2/configs/sam2.1/sam2.1_hiera_b+.yaml), [checkpoint](https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_base_plus.pt)) |     80.8     |        64.1          |        78.2         |        73.7        |       78.2        |
-|   sam2.1_hiera_large <br /> ([config](sam2/configs/sam2.1/sam2.1_hiera_l.yaml), [checkpoint](https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt))   |    224.4     |          39.5          |        79.5         |        74.6        |       80.6        |
+| sam2.1_hiera_tiny <br /> ([config](sam2/configs/sam2.1/sam2.1_hiera_t.yaml), [checkpoint](https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_tiny.pt)) | 38.9 | 91.2 | 76.5 | 71.8 | 77.3 |
+| sam2.1_hiera_small <br /> ([config](sam2/configs/sam2.1/sam2.1_hiera_s.yaml), [checkpoint](https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_small.pt)) | 46 | 84.8 | 76.6 | 73.5 | 78.3 |
+| sam2.1_hiera_base_plus <br /> ([config](sam2/configs/sam2.1/sam2.1_hiera_b+.yaml), [checkpoint](https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_base_plus.pt)) | 80.8 | 64.1 | 78.2 | 73.7 | 78.2 |
+| sam2.1_hiera_large <br /> ([config](sam2/configs/sam2.1/sam2.1_hiera_l.yaml), [checkpoint](https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt)) | 224.4 | 39.5 | 79.5 | 74.6 | 80.6 |
 
 ### SAM 2 checkpoints
 
 The previous SAM 2 checkpoints released on July 29, 2024 can be found as follows:
 
-|      **Model**       | **Size (M)** |    **Speed (FPS)**     | **SA-V test (J&F)** | **MOSE val (J&F)** | **LVOS v2 (J&F)** |
-| :------------------: | :----------: | :--------------------: | :-----------------: | :----------------: | :---------------: |
-|   sam2_hiera_tiny <br /> ([config](sam2/configs/sam2/sam2_hiera_t.yaml), [checkpoint](https://dl.fbaipublicfiles.com/segment_anything_2/072824/sam2_hiera_tiny.pt))   |     38.9     |          91.5          |        75.0         |        70.9        |       75.3        |
-|   sam2_hiera_small <br /> ([config](sam2/configs/sam2/sam2_hiera_s.yaml), [checkpoint](https://dl.fbaipublicfiles.com/segment_anything_2/072824/sam2_hiera_small.pt))   |      46      |          85.6          |        74.9         |        71.5        |       76.4        |
-| sam2_hiera_base_plus <br /> ([config](sam2/configs/sam2/sam2_hiera_b+.yaml), [checkpoint](https://dl.fbaipublicfiles.com/segment_anything_2/072824/sam2_hiera_base_plus.pt)) |     80.8     |     64.8    |        74.7         |        72.8        |       75.8        |
-|   sam2_hiera_large <br /> ([config](sam2/configs/sam2/sam2_hiera_l.yaml), [checkpoint](https://dl.fbaipublicfiles.com/segment_anything_2/072824/sam2_hiera_large.pt))   |    224.4     | 39.7 |        76.0         |        74.6        |       79.8        |
+|                                                                                  **Model**                                                                                   | **Size (M)** | **Speed (FPS)** | **SA-V test (J&F)** | **MOSE val (J&F)** | **LVOS v2 (J&F)** |
+| :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------: | :----------: | :-------------: | :-----------------: | :----------------: | :---------------: |
+|      sam2_hiera_tiny <br /> ([config](sam2/configs/sam2/sam2_hiera_t.yaml), [checkpoint](https://dl.fbaipublicfiles.com/segment_anything_2/072824/sam2_hiera_tiny.pt))       |     38.9     |      91.5       |        75.0         |        70.9        |       75.3        |
+|     sam2_hiera_small <br /> ([config](sam2/configs/sam2/sam2_hiera_s.yaml), [checkpoint](https://dl.fbaipublicfiles.com/segment_anything_2/072824/sam2_hiera_small.pt))      |      46      |      85.6       |        74.9         |        71.5        |       76.4        |
+| sam2_hiera_base_plus <br /> ([config](sam2/configs/sam2/sam2_hiera_b+.yaml), [checkpoint](https://dl.fbaipublicfiles.com/segment_anything_2/072824/sam2_hiera_base_plus.pt)) |     80.8     |      64.8       |        74.7         |        72.8        |       75.8        |
+|     sam2_hiera_large <br /> ([config](sam2/configs/sam2/sam2_hiera_l.yaml), [checkpoint](https://dl.fbaipublicfiles.com/segment_anything_2/072824/sam2_hiera_large.pt))      |    224.4     |      39.7       |        76.0         |        74.6        |       79.8        |
 
 Speed measured on an A100 with `torch 2.5.1, cuda 12.4`. See `benchmark.py` for an example on benchmarking (compiling all the model components). Compiling only the image encoder can be more flexible and also provide (a smaller) speed-up (set `compile_image_encoder: True` in the config).
+
 ## Segment Anything Video Dataset
 
 See [sav_dataset/README.md](sav_dataset/README.md) for details.

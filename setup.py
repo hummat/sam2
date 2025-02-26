@@ -9,7 +9,7 @@ from setuptools import find_namespace_packages, setup
 
 # Package metadata
 NAME = "sam2"
-VERSION = "1.0.1"
+VERSION = "1.1.0"
 DESCRIPTION = "SAM 2: Segment Anything in Images and Videos"
 URL = "https://github.com/facebookresearch/sam2"
 AUTHOR = "Meta AI"
@@ -29,6 +29,7 @@ REQUIRED_PACKAGES = [
     "hydra-core>=1.3.2",
     "iopath>=0.1.10",
     "pillow>=9.4.0",
+    "huggingface-hub>=0.23.3",
 ]
 
 EXTRA_PACKAGES = {
@@ -116,44 +117,48 @@ def get_extensions():
     return ext_modules
 
 
-try:
-    from torch.utils.cpp_extension import BuildExtension
-
-    class BuildExtensionIgnoreErrors(BuildExtension):
-
-        def finalize_options(self):
-            try:
-                super().finalize_options()
-            except Exception as e:
-                print(CUDA_ERROR_MSG.format(e))
-                self.extensions = []
-
-        def build_extensions(self):
-            try:
-                super().build_extensions()
-            except Exception as e:
-                print(CUDA_ERROR_MSG.format(e))
-                self.extensions = []
-
-        def get_ext_filename(self, ext_name):
-            try:
-                return super().get_ext_filename(ext_name)
-            except Exception as e:
-                print(CUDA_ERROR_MSG.format(e))
-                self.extensions = []
-                return "_C.so"
-
-    cmdclass = {
-        "build_ext": (BuildExtensionIgnoreErrors.with_options(
-            no_python_abi_suffix=True) if BUILD_ALLOW_ERRORS else BuildExtension.with_options(no_python_abi_suffix=True)
-                     )
-    }
-except Exception as e:
-    cmdclass = {}
-    if BUILD_ALLOW_ERRORS:
-        print(CUDA_ERROR_MSG.format(e))
+def get_cmdclass():
+    if not BUILD_CUDA:
+        return {}
     else:
-        raise e
+        try:
+            from torch.utils.cpp_extension import BuildExtension
+
+            class BuildExtensionIgnoreErrors(BuildExtension):
+
+                def finalize_options(self):
+                    try:
+                        super().finalize_options()
+                    except Exception as e:
+                        print(CUDA_ERROR_MSG.format(e))
+                        self.extensions = []
+
+                def build_extensions(self):
+                    try:
+                        super().build_extensions()
+                    except Exception as e:
+                        print(CUDA_ERROR_MSG.format(e))
+                        self.extensions = []
+
+                def get_ext_filename(self, ext_name):
+                    try:
+                        return super().get_ext_filename(ext_name)
+                    except Exception as e:
+                        print(CUDA_ERROR_MSG.format(e))
+                        self.extensions = []
+                        return "_C.so"
+
+            return {
+                "build_ext": (BuildExtensionIgnoreErrors.with_options(no_python_abi_suffix=True)
+                              if BUILD_ALLOW_ERRORS else BuildExtension.with_options(no_python_abi_suffix=True))
+            }
+        except Exception as e:
+            if BUILD_ALLOW_ERRORS:
+                print(CUDA_ERROR_MSG.format(e))
+                return {}
+            else:
+                raise e
+
 
 # Setup configuration
 setup(
@@ -170,9 +175,9 @@ setup(
     include_package_data=True,
     install_requires=REQUIRED_PACKAGES,
     extras_require=EXTRA_PACKAGES,
-    python_requires=">=3.9",
+    python_requires="~=3.9",
     ext_modules=get_extensions(),
-    cmdclass=cmdclass,
+    cmdclass=get_cmdclass(),
     entry_points={
         "console_scripts": ["sam2 = sam2.cli:main"],
     },
