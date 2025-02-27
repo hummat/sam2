@@ -277,7 +277,7 @@ def run(args: Args) -> npt.NDArray[np.bool_]:
     else:
         ckpt_path = str(Path(__file__).parent.parent / "checkpoints" / f"{args.model.name}.pt")
 
-    logger.debug(f"Using config file: {config_file}, Checkpoint: {ckpt_path}")
+    logger.debug(f"Model configuration: config_file={config_file}, checkpoint={ckpt_path}")
 
     device = args.model.device if args.model.device != "auto" else "cuda" if torch.cuda.is_available() else "cpu"
     logger.debug(f"Using device: {device}")
@@ -288,12 +288,42 @@ def run(args: Args) -> npt.NDArray[np.bool_]:
     masks = None
 
     if args.data.is_file():
-        image = np.array(Image.open(args.data).convert("RGB"))
+        if args.data.suffix.lower() in {'.jpg', '.jpeg', '.png'}:
+            try:
+                image = np.array(Image.open(args.data).convert("RGB"))
+                logger.debug(f"Loaded image: {args.data}, shape={image.shape}")
+            except Exception as e:
+                logger.error(f"Failed to load image {args.data}: {e}")
+                raise
+        elif args.data.suffix.lower() in {'.npy', '.npz'}:
+            try:
+                image = np.load(args.data)
+                logger.debug(f"Loaded numpy array: {args.data}, shape={image.shape}")
+            except Exception as e:
+                logger.error(f"Failed to load numpy data {args.data}: {e}")
+                raise
+        else:
+            error_msg = f"Invalid data file format: {args.data}. Supported formats: .jpg, .jpeg, .png, .npy, .npz"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
     elif args.data.is_dir():
-        file = next(p for p in args.data.iterdir() if p.suffix.lower() in {'.jpg', '.jpeg', '.png'})
-        image = np.array(Image.open(file).convert("RGB"))
+        try:
+            image_extensions = {'.jpg', '.jpeg', '.png'}
+            files = [p for p in args.data.iterdir() if p.suffix.lower() in image_extensions]
+            if not files:
+                error_msg = f"No image files found in directory: {args.data}"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+            file = files[0]
+            image = np.array(Image.open(file).convert("RGB"))
+            logger.debug(f"Loaded first image from directory: {file}, shape={image.shape}")
+        except Exception as e:
+            logger.error(f"Failed to load image from directory {args.data}: {e}")
+            raise
     else:
-        raise ValueError(f"Invalid data path: {args.data}")
+        error_msg = f"Invalid data path: {args.data}. Path must be a file or directory."
+        logger.error(error_msg)
+        raise ValueError(error_msg)
 
     if args.points:
         points = np.array(args.points, dtype=np.float32)
@@ -304,8 +334,11 @@ def run(args: Args) -> npt.NDArray[np.bool_]:
                 points[i, 1] = image.shape[0] * points[i, 1]
         labels = np.array(args.labels if args.labels else [1] * len(args.points), dtype=np.int32)
         if len(points) != len(labels):
-            raise ValueError(f"Number of points ({len(points)}) and labels ({len(labels)}) do not match")
-        logger.info(f"Using {len(points)} point(s) with label(s) {labels}")
+            error_msg = f"Number of points ({len(points)}) and labels ({len(labels)}) do not match"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        logger.info(f"Using {len(points)} prompt point(s)")
+        logger.debug(f"Points: {points}, Labels: {labels}")
 
     if args.box:
         box = np.array(args.box, dtype=np.float32)
@@ -317,11 +350,10 @@ def run(args: Args) -> npt.NDArray[np.bool_]:
             box[2] = image.shape[1] * box[2]
         if box[3] < 1:
             box[3] = image.shape[0] * box[3]
-        logger.info(f"Using box: {box}")
+        logger.info(f"Using prompt box: [{box[0]:.1f}, {box[1]:.1f}, {box[2]:.1f}, {box[3]:.1f}]")
 
     if args.data.is_file():
-        logger.info(f"Processing single image")
-        image = np.array(Image.open(args.data).convert("RGB"))
+        logger.info(f"Processing single image: {args.data.name}")
         base_filename = args.data.stem
 
         figsize = (8, 4.5) if image.shape[1] > image.shape[0] else (4.5, 8)
@@ -329,47 +361,69 @@ def run(args: Args) -> npt.NDArray[np.bool_]:
 
         if args.model.huggingface:
             hf_name = f"facebook/{args.model.name.replace('_', '-')}"
-            logger.info(f"Loading checkpoint {hf_name} from Hugging Face model hub")
-            with (contextlib.nullcontext() if args.quiet else contextlib.redirect_stderr(io.StringIO())):
-                predictor = SAM2ImagePredictor.from_pretrained(
-                    model_id=hf_name,
+            logger.info(f"Loading model from Hugging Face: {hf_name}")
+            try:
+                with (contextlib.nullcontext() if args.quiet else contextlib.redirect_stderr(io.StringIO())):
+                    predictor = SAM2ImagePredictor.from_pretrained(
+                        model_id=hf_name,
+                        mask_threshold=args.model.mask_threshold,
+                        max_hole_area=args.model.max_hole_area,
+                        max_sprinkle_area=args.model.max_sprinkle_area,
+                    )
+                logger.debug("Model loaded successfully from Hugging Face")
+            except Exception as e:
+                logger.error(f"Failed to load model from Hugging Face: {e}")
+                raise
+        else:
+            logger.info(f"Loading model from checkpoint: {Path(ckpt_path).name}")
+            try:
+                predictor = SAM2ImagePredictor(
+                    sam_model=build_sam2(config_file, ckpt_path, device=device),
                     mask_threshold=args.model.mask_threshold,
                     max_hole_area=args.model.max_hole_area,
                     max_sprinkle_area=args.model.max_sprinkle_area,
                 )
-        else:
-            logger.info(f"Loading checkpoint from {ckpt_path}")
-            predictor = SAM2ImagePredictor(
-                sam_model=build_sam2(config_file, ckpt_path, device=device),
-                mask_threshold=args.model.mask_threshold,
-                max_hole_area=args.model.max_hole_area,
-                max_sprinkle_area=args.model.max_sprinkle_area,
-            )
-        predictor.set_image(image)
-        logger.debug(f"Image shape: {image.shape}")
+                logger.debug("Model loaded successfully from checkpoint")
+            except Exception as e:
+                logger.error(f"Failed to load model from checkpoint: {e}")
+                raise
+
+        try:
+            predictor.set_image(image)
+        except Exception as e:
+            logger.error(f"Failed to set image for prediction: {e}")
+            raise
 
         data = None
         while True:
             if points is not None or box is not None:
-                with torch.inference_mode(), torch.autocast(device_type=device, dtype=torch.bfloat16):
-                    if points is not None:
-                        logger.debug(f"Running inference with point(s): {points} and label(s): {labels}")
-                    elif box is not None:
-                        logger.debug(f"Running inference with box: {box}")
-                    masks, scores, _ = predictor.predict(
-                        point_coords=points,
-                        point_labels=labels,
-                        box=box,
-                    )
+                try:
+                    with torch.inference_mode(), torch.autocast(device_type=device, dtype=torch.bfloat16):
+                        if points is not None:
+                            logger.debug(f"Running inference with {len(points)} point(s)")
+                        elif box is not None:
+                            logger.debug(f"Running inference with box")
 
-                    sorted_ind = np.argsort(scores)[::-1]
-                    masks = masks[sorted_ind] > 0
-                    scores = scores[sorted_ind]
-                    logger.debug(f"Generated {len(scores)} masks with scores: {scores}")
-                    logger.debug(f"Best mask score: {scores[0]:.3f}")
+                        masks, scores, _ = predictor.predict(
+                            point_coords=points,
+                            point_labels=labels,
+                            box=box,
+                        )
 
-                    if not args.output_dir and not args.show and data is None:
-                        return masks[0]  # Return the best mask
+                        if len(scores) == 0:
+                            logger.warning("No masks generated")
+                        else:
+                            sorted_ind = np.argsort(scores)[::-1]
+                            masks = masks[sorted_ind] > 0
+                            scores = scores[sorted_ind]
+                            logger.debug(f"Generated {len(scores)} masks with scores: {scores}")
+                            logger.info(f"Best mask score: {scores[0]:.3f}")
+                except Exception as e:
+                    logger.error(f"Error during inference: {e}")
+                    raise
+
+                if not args.output_dir and not args.show and data is None:
+                    return masks[0]  # Return the best mask
 
             data = show_masks(
                 image=image,
@@ -389,6 +443,7 @@ def run(args: Args) -> npt.NDArray[np.bool_]:
             p, l = data
             if l is None:
                 box, points = p, None
+                logger.info("Selected box prompt")
             else:
                 if points is None:
                     points = p
@@ -396,55 +451,84 @@ def run(args: Args) -> npt.NDArray[np.bool_]:
                 else:
                     points = np.concatenate([points, p], axis=0)
                     labels = np.concatenate([labels, l], axis=0)
+                logger.info(f"Added {len(p)} new point prompt(s)")
 
     elif args.data.is_dir():
-        frame_names = [p for p in args.data.iterdir() if p.suffix.lower() in {'.jpg', '.jpeg', '.png'}]
-        frame_names.sort(key=lambda p: int(''.join(filter(str.isdigit, p.stem))))
-        logger.info(f"Processing video directory with {len(frame_names)} frames")
+        try:
+            frame_names = [p for p in args.data.iterdir() if p.suffix.lower() in {'.jpg', '.jpeg', '.png'}]
+            if not frame_names:
+                error_msg = f"No image files found in directory: {args.data}"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
 
-        image = np.asarray(Image.open(frame_names[args.init_frame]).convert("RGB"))
+            frame_names.sort(key=lambda p: int(''.join(filter(str.isdigit, p.stem))))
+            logger.info(f"Processing video with {len(frame_names)} frames")
+        except Exception as e:
+            logger.error(f"Error processing video directory: {e}")
+            raise
+
+        try:
+            image = np.asarray(Image.open(frame_names[args.init_frame]).convert("RGB"))
+            logger.debug(f"Initial frame loaded: {frame_names[args.init_frame]}, shape={image.shape}")
+        except Exception as e:
+            logger.error(f"Failed to load initial frame: {e}")
+            raise
+
         figsize = (8, 4.5) if image.shape[1] > image.shape[0] else (4.5, 8)
         logger.debug(f"Using figure size: {figsize}")
 
-        if args.model.huggingface:
-            hf_name = str(f"facebook/{Path(args.model.checkpoint).stem}").replace("_", "-")
-            logger.info(f"Loading checkpoint {hf_name} from Hugging Face model hub")
-            with (contextlib.nullcontext() if args.quiet else contextlib.redirect_stderr(io.StringIO())):
-                predictor = SAM2VideoPredictor.from_pretrained(
-                    model_id=hf_name,
+        try:
+            if args.model.huggingface:
+                hf_name = str(f"facebook/{Path(args.model.checkpoint).stem}").replace("_", "-")
+                logger.info(f"Loading video model from Hugging Face: {hf_name}")
+                with (contextlib.nullcontext() if args.quiet else contextlib.redirect_stderr(io.StringIO())):
+                    predictor = SAM2VideoPredictor.from_pretrained(
+                        model_id=hf_name,
+                        apply_postprocessing=True,
+                    )
+            else:
+                logger.info(f"Loading video model from checkpoint: {Path(ckpt_path).name}")
+                predictor = build_sam2_video_predictor(
+                    config_file=config_file,
+                    ckpt_path=ckpt_path,
+                    device=device,
                     apply_postprocessing=True,
                 )
-        else:
-            logger.info(f"Loading checkpoint from {ckpt_path}")
-            predictor = build_sam2_video_predictor(
-                config_file=config_file,
-                ckpt_path=ckpt_path,
-                device=device,
-                apply_postprocessing=True,
-            )
+        except Exception as e:
+            logger.error(f"Failed to load video model: {e}")
+            raise
 
-        logger.info("Loading frames")
-        with (contextlib.nullcontext()
-              if getattr(args, 'progress', False) else contextlib.redirect_stderr(io.StringIO())):
-            inference_state = predictor.init_state(video_path=str(args.data), async_loading_frames=args.async_load)
+        logger.info("Loading video frames")
+        try:
+            with (contextlib.nullcontext()
+                  if getattr(args, 'progress', False) else contextlib.redirect_stderr(io.StringIO())):
+                inference_state = predictor.init_state(video_path=str(args.data), async_loading_frames=args.async_load)
+            logger.debug("Video frames loaded successfully")
+        except Exception as e:
+            logger.error(f"Failed to load video frames: {e}")
+            raise
 
         all_points = None
         all_labels = None
         while True:
             if points is not None or box is not None:
-                with torch.inference_mode(), torch.autocast(device_type=device, dtype=torch.bfloat16):
-                    if points is not None:
-                        logger.debug(f"Adding new point(s): {points} with label(s) {labels}")
-                    elif box is not None:
-                        logger.debug(f"Adding new box: {box}")
-                    _, _, masks = predictor.add_new_points_or_box(
-                        inference_state=inference_state,
-                        frame_idx=args.init_frame,
-                        obj_id=0,
-                        points=points,
-                        labels=labels,
-                        box=box,
-                    )
+                try:
+                    with torch.inference_mode(), torch.autocast(device_type=device, dtype=torch.bfloat16):
+                        if points is not None:
+                            logger.debug(f"Adding {len(points)} new point(s) to frame {args.init_frame}")
+                        elif box is not None:
+                            logger.debug(f"Adding new box to frame {args.init_frame}")
+                        _, _, masks = predictor.add_new_points_or_box(
+                            inference_state=inference_state,
+                            frame_idx=args.init_frame,
+                            obj_id=0,
+                            points=points,
+                            labels=labels,
+                            box=box,
+                        )
+                except Exception as e:
+                    logger.error(f"Failed to add points/box to video: {e}")
+                    raise
 
             if args.points or args.box:
                 break
@@ -463,6 +547,7 @@ def run(args: Args) -> npt.NDArray[np.bool_]:
             points, labels = data
             if labels is None:
                 box, points = points, None
+                logger.info("Selected box prompt for video")
             else:
                 if all_points is None:
                     all_points = points
@@ -470,36 +555,57 @@ def run(args: Args) -> npt.NDArray[np.bool_]:
                 else:
                     all_points = np.concatenate([all_points, points], axis=0)
                     all_labels = np.concatenate([all_labels, labels], axis=0)
+                logger.info(f"Added {len(points)} new point prompt(s) to video")
 
-        logger.info("Starting video propagation")
+        logger.info("Starting video segmentation propagation")
         video_segments = {}
-        with torch.inference_mode(), torch.autocast(device_type=device, dtype=torch.bfloat16):
-            with (contextlib.nullcontext() if args.progress else contextlib.redirect_stderr(io.StringIO())):
-                for frame_idx, object_ids, masks in predictor.propagate_in_video(inference_state):
-                    logger.debug(f"Processing frame {frame_idx} with {len(object_ids)} object(s)")
-                    video_segments[frame_idx] = {
-                        object_id: (masks[i] > 0).squeeze().cpu().numpy() for i, object_id in enumerate(object_ids)
-                    }
+        try:
+            with torch.inference_mode(), torch.autocast(device_type=device, dtype=torch.bfloat16):
+                with (contextlib.nullcontext() if args.progress else contextlib.redirect_stderr(io.StringIO())):
+                    for frame_idx, object_ids, masks in predictor.propagate_in_video(inference_state):
+                        logger.debug(f"Processed frame {frame_idx} with {len(object_ids)} object(s)")
+                        video_segments[frame_idx] = {
+                            object_id: (masks[i] > 0).squeeze().cpu().numpy() for i, object_id in enumerate(object_ids)
+                        }
+        except Exception as e:
+            logger.error(f"Error during video propagation: {e}")
+            raise
 
         if args.output_dir or args.show:
             stride = args.stride if args.stride > 1 or args.output_dir else len(frame_names) // 10
-            logger.info(f"Rendering results (stride={stride})" if stride > 1 else "Rendering results")
-            for frame_idx in trange(0, len(frame_names), stride, desc="render frames", disable=not args.progress):
-                show_masks(
-                    image=np.asarray(Image.open(frame_names[frame_idx])),
-                    masks=video_segments[frame_idx].values(),
-                    figsize=figsize,
-                    output_dir=args.output_dir,
-                    base_filename=frame_names[frame_idx].stem,
-                    transparent_mask=args.transparent_mask,
-                )
+            logger.info(f"Rendering {len(video_segments)} frames with stride={stride}")
+            try:
+                for frame_idx in trange(0, len(frame_names), stride, desc="Rendering frames",
+                                        disable=not args.progress):
+                    if frame_idx not in video_segments:
+                        logger.warning(f"Missing segmentation for frame {frame_idx}, skipping")
+                        continue
 
+                    show_masks(
+                        image=np.asarray(Image.open(frame_names[frame_idx])),
+                        masks=list(video_segments[frame_idx].values()),
+                        figsize=figsize,
+                        output_dir=args.output_dir,
+                        base_filename=frame_names[frame_idx].stem,
+                        transparent_mask=args.transparent_mask,
+                    )
+            except Exception as e:
+                logger.error(f"Error rendering video frames: {e}")
+                raise
+
+        logger.info("Video segmentation complete")
         # Return masks for the first object in each frame
         return np.array([list(vs.values())[0] for vs in video_segments.values()])
 
 
 def main():
-    run(tyro.cli(Args))
+    try:
+        run(tyro.cli(Args))
+    except Exception as e:
+        logger.error(f"Error running SAM-2: {e}")
+        if logger.level("DEBUG").no < logger._core.min_level:
+            logger.error("Run with --verbose flag for more details")
+        raise
 
 
 if __name__ == "__main__":
