@@ -479,23 +479,25 @@ def run(args: Args) -> npt.NDArray[np.bool_]:
 
         try:
             if args.model.huggingface:
-                hf_name = str(f"facebook/{Path(args.model.checkpoint).stem}").replace("_", "-")
-                logger.info(f"Loading video model from Hugging Face: {hf_name}")
+                hf_name = f"facebook/{args.model.name.replace('_', '-')}"
+                logger.info(f"Loading model from Hugging Face: {hf_name}")
                 with (contextlib.nullcontext() if args.quiet else contextlib.redirect_stderr(io.StringIO())):
                     predictor = SAM2VideoPredictor.from_pretrained(
                         model_id=hf_name,
                         apply_postprocessing=True,
                     )
+                logger.debug("Model loaded successfully from Hugging Face")
             else:
-                logger.info(f"Loading video model from checkpoint: {Path(ckpt_path).name}")
+                logger.info(f"Loading model from checkpoint: {Path(ckpt_path).name}")
                 predictor = build_sam2_video_predictor(
                     config_file=config_file,
                     ckpt_path=ckpt_path,
                     device=device,
                     apply_postprocessing=True,
                 )
+                logger.debug("Model loaded successfully from checkpoint")
         except Exception as e:
-            logger.error(f"Failed to load video model: {e}")
+            logger.error(f"Failed to load model from checkpoint: {e}")
             raise
 
         logger.info("Loading video frames")
