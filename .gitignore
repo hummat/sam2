@@ -10,3 +10,4 @@ outputs/*
 checkpoints/*.pt
 demo/backend/checkpoints/*.pt
 .python-version
+.claude/settings.local.json
